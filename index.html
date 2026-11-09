@@ -1,0 +1,523 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Intérprete">
+<meta name="theme-color" content="#0E0E10">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<title>Intérprete PT ⇄ 中文</title>
+<style>
+/* Layout: duas metades frente a frente (中文 em cima, Português embaixo); no meio só o dialeto atual + 2 ícones; ajustes numa gaveta que sobe de baixo. */
+:root{
+  --bg:#F2F2F5; --surface:#FFFFFF; --fg:#1C1C1F; --muted:#6E6E78; --line:rgba(60,60,67,.14);
+  --pt:#0B7A62; --pt-soft:rgba(11,122,98,.11);
+  --zh:#B3261E; --zh-soft:rgba(179,38,30,.10);
+  --glass:rgba(250,250,252,.8); --on-accent:#FFFFFF; --scrim:rgba(0,0,0,.35);
+  --font:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --font-zh:"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans SC",system-ui,sans-serif;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#0E0E10; --surface:#1C1C1F; --fg:#F2F2F5; --muted:#9A9AA4; --line:rgba(235,235,245,.13);
+  --pt:#3DD3AE; --pt-soft:rgba(61,211,174,.14); --zh:#FF6B5E; --zh-soft:rgba(255,107,94,.14);
+  --glass:rgba(28,28,31,.8); --on-accent:#0E0E10; --scrim:rgba(0,0,0,.55); color-scheme:dark}}
+
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--fg);font:16px/1.45 var(--font);-webkit-font-smoothing:antialiased;overflow:hidden;
+  padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+button,select,input,textarea{font:inherit;color:inherit}
+button{border:0;background:none;cursor:pointer;touch-action:manipulation}
+button:focus-visible,select:focus-visible,textarea:focus-visible,input:focus-visible{outline:2px solid var(--pt);outline-offset:2px}
+[hidden]{display:none!important}
+
+.app{height:100%;display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr) auto minmax(0,1fr)}
+.side{min-width:0;min-height:0;display:flex;flex-direction:column;gap:8px;padding-block:10px;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.side.zh{--accent:var(--zh);--soft:var(--zh-soft);font-family:var(--font-zh)}
+.side.pt{--accent:var(--pt);--soft:var(--pt-soft)}
+body.flip .side.zh{transform:rotate(180deg)}
+
+.head{display:flex;align-items:center;justify-content:space-between;gap:10px;min-width:0}
+.lang{font-weight:650;font-size:.95rem;color:var(--accent);display:flex;align-items:center;gap:8px;min-width:0;white-space:nowrap}
+.dot{flex:none;width:8px;height:8px;border-radius:50%;background:var(--accent);opacity:.3}
+.side.turn .dot{opacity:1}
+.side.busy .dot,.side.live .dot{opacity:1;animation:pulse 1s ease-in-out infinite}
+@keyframes pulse{50%{transform:scale(1.7);opacity:.45}}
+.status{font-size:.8rem;color:var(--muted);text-align:right;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+.log{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:10px;padding:2px;-webkit-overflow-scrolling:touch}
+.empty{margin:auto;text-align:center;color:var(--muted);font-size:.95rem;max-width:30ch;text-wrap:balance}
+.msg{max-width:90%;padding:10px 14px;border-radius:18px;min-width:0;overflow-wrap:anywhere}
+.msg.in{align-self:flex-start;background:var(--surface);box-shadow:0 1px 2px rgba(0,0,0,.08)}
+.msg.out{align-self:flex-end;background:var(--soft)}
+.msg.ghost{opacity:.6}
+.big{font-size:1.35rem;line-height:1.3;font-weight:500}
+.msg.out .big{font-size:1rem;font-weight:450}
+.sub{font-size:.8rem;color:var(--muted);margin-top:4px}
+.zhf{font-family:var(--font-zh)} .ptf{font-family:var(--font)}
+.tag{display:inline-block;font:600 .7rem/1.4 var(--font);letter-spacing:.04em;color:var(--zh);background:var(--zh-soft);border-radius:6px;padding:1px 6px;margin-bottom:4px}
+.again{font-size:.8rem;color:var(--accent);padding:6px 10px;margin:4px 0 -4px -10px;border-radius:999px}
+.again:active{background:var(--soft)}
+.msg.pending .big{color:var(--muted)}
+
+/* controles de cada lado: microfone grande no centro, teclado ao lado */
+.ctrl{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:10px}
+.kbd{justify-self:start;width:44px;height:44px;border-radius:50%;display:grid;place-items:center;color:var(--muted);background:var(--surface);border:1px solid var(--line)}
+.kbd svg{width:22px;height:22px}
+.hint{justify-self:end;font-size:.78rem;color:var(--muted);text-align:right;max-width:12ch;line-height:1.25}
+.mic{width:76px;height:76px;border-radius:50%;background:var(--accent);color:var(--on-accent);display:grid;place-items:center;
+  box-shadow:0 8px 22px -8px var(--accent);transition:transform .12s ease-out}
+.mic:active{transform:scale(.93)}
+.mic svg{width:32px;height:32px}
+.mic .stop{display:none}
+.side.live .mic{animation:ring 1.3s ease-out infinite}
+.side.live .mic .go{display:none}.side.live .mic .stop{display:block}
+.side.busy .mic{opacity:.5}
+@keyframes ring{0%{box-shadow:0 0 0 0 var(--soft),0 0 0 0 var(--accent)}100%{box-shadow:0 0 0 22px transparent,0 0 0 0 var(--accent)}}
+.type{display:flex;align-items:flex-end;gap:6px;background:var(--surface);border:1px solid var(--line);border-radius:22px;padding:4px 4px 4px 14px}
+.type textarea{flex:1;min-width:0;border:0;background:none;outline:none;resize:none;font-size:16px;line-height:1.35;padding:8px 0;max-height:6.8em}
+.type button{flex:none;height:36px;padding:0 14px;border-radius:999px;background:var(--accent);color:var(--on-accent);font-weight:650;font-size:.9rem}
+
+/* barra central */
+.bar{min-width:0;position:relative;z-index:2;background:var(--glass);backdrop-filter:blur(20px) saturate(180%);-webkit-backdrop-filter:blur(20px) saturate(180%);
+  border-block:1px solid var(--line);display:flex;align-items:center;gap:4px;padding-block:4px;
+  padding-left:max(10px,env(safe-area-inset-left,0px));padding-right:max(10px,env(safe-area-inset-right,0px))}
+.dial{flex:1;min-width:0;display:flex;align-items:center;gap:8px;text-align:left;padding:6px 10px;border-radius:14px;min-height:48px}
+.dial:active{background:var(--zh-soft)}
+.dial .txt{min-width:0;display:flex;flex-direction:column}
+.dial b{font-family:var(--font-zh);font-weight:650;color:var(--zh);font-size:.98rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dial small{font-size:.74rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dial .chev{flex:none;width:14px;height:14px;color:var(--muted)}
+.ibtn{flex:none;width:48px;height:48px;border-radius:50%;display:grid;place-items:center;color:var(--muted)}
+.ibtn:active{background:var(--line)}
+.ibtn svg{width:23px;height:23px}
+.ibtn[aria-pressed="true"]{color:var(--zh);background:var(--zh-soft)}
+
+/* gaveta */
+.scrim{position:fixed;inset:0;z-index:8;background:var(--scrim);opacity:0;visibility:hidden;transition:opacity .3s,visibility 0s .3s}
+.scrim.open{opacity:1;visibility:visible;transition:opacity .3s}
+.sheet{position:fixed;left:0;right:0;bottom:0;z-index:9;max-height:88%;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;
+  background:var(--surface);border-radius:22px 22px 0 0;box-shadow:0 -10px 40px rgba(0,0,0,.25);
+  padding-top:8px;padding-bottom:calc(18px + env(safe-area-inset-bottom,0px));
+  padding-left:max(18px,env(safe-area-inset-left,0px));padding-right:max(18px,env(safe-area-inset-right,0px));
+  display:flex;flex-direction:column;gap:12px;
+  transform:translateY(105%);visibility:hidden;transition:transform .38s cubic-bezier(.2,.9,.25,1),visibility 0s .38s}
+.sheet.open{transform:none;visibility:visible;transition:transform .38s cubic-bezier(.2,.9,.25,1)}
+.sheet>*{flex-shrink:0}
+.grab{width:38px;height:5px;border-radius:3px;background:var(--line);margin:0 auto 4px}
+.sheet h2{margin:6px 0 -4px;font-size:.74rem;font-weight:650;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.list{display:flex;flex-direction:column;background:var(--bg);border-radius:14px;overflow:hidden}
+.drow{display:flex;align-items:center;gap:12px;padding:12px 14px;text-align:left;min-height:54px}
+.drow+.drow{border-top:1px solid var(--line)}
+.drow:active{background:var(--zh-soft)}
+.drow .txt{flex:1;min-width:0;display:flex;flex-direction:column}
+.drow b{font-family:var(--font-zh);font-weight:600;font-size:1.02rem}
+.drow small{font-size:.78rem;color:var(--muted)}
+.drow .ck{flex:none;width:22px;height:22px;color:var(--zh);opacity:0}
+.drow[aria-pressed="true"] .ck{opacity:1}
+.tog{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;min-height:50px;text-align:left;font-size:.98rem}
+.tog+.tog{border-top:1px solid var(--line)}
+.tog i{flex:none;width:46px;height:28px;border-radius:14px;background:var(--line);position:relative;transition:background .2s}
+.tog i::after{content:"";position:absolute;top:2px;left:2px;width:24px;height:24px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.3);transition:transform .28s cubic-bezier(.3,1.3,.5,1)}
+.tog[aria-pressed="true"] i{background:var(--pt)}
+.tog[aria-pressed="true"] i::after{transform:translateX(18px)}
+.field{display:flex;flex-direction:column;gap:6px;font-size:.8rem;color:var(--muted);min-width:0}
+.field select,.field input{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:11px 12px;font-size:16px;width:100%;min-width:0;color:var(--fg)}
+.note{font-size:.8rem;color:var(--muted);margin:0;line-height:1.4}
+.note a{color:var(--pt)}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+.btn{padding:11px 16px;border-radius:999px;background:var(--bg);border:1px solid var(--line);font-size:.92rem}
+.btn.primary{background:var(--pt);border-color:var(--pt);color:var(--on-accent);font-weight:650}
+.done{height:52px;border-radius:14px;background:var(--fg);color:var(--bg);font-weight:650;font-size:1rem;margin-top:4px}
+.ok{color:var(--pt)} .bad{color:var(--zh)}
+
+.banner{position:fixed;left:50%;top:calc(10px + env(safe-area-inset-top,0px));transform:translateX(-50%);z-index:20;width:max-content;max-width:calc(100% - 32px);
+  background:var(--fg);color:var(--bg);padding:11px 16px;border-radius:14px;font-size:.9rem;box-shadow:0 8px 30px rgba(0,0,0,.25)}
+
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+@media (prefers-reduced-transparency:reduce){.bar{background:var(--surface);backdrop-filter:none;-webkit-backdrop-filter:none}}
+@media (max-height:680px){.big{font-size:1.15rem}.mic{width:64px;height:64px}}
+</style>
+</head>
+<body>
+<div class="app">
+  <section class="side zh" id="side-zh" aria-label="中文">
+    <div class="head">
+      <div class="lang"><span class="dot"></span><span id="zhName">中文</span></div>
+      <div class="status" id="st-zh"></div>
+    </div>
+    <div class="log" id="log-zh"><p class="empty">按红色按钮说中文，我会翻译成葡萄牙语。<br>普通话、四川话、湖南话、粤语都可以。</p></div>
+    <form class="type" id="type-zh" hidden><textarea id="in-zh" rows="1" placeholder="打字…" enterkeyhint="send"></textarea><button>发送</button></form>
+    <div class="ctrl">
+      <button class="kbd" id="kbd-zh" type="button" aria-label="打字"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><rect x="3" y="6" width="18" height="12" rx="2.5"/><path d="M7 10h.01M10.5 10h.01M14 10h.01M17 10h.01M8 14h8"/></svg></button>
+      <button class="mic" id="mic-zh" type="button" aria-label="说话">
+        <svg class="go" viewBox="0 0 24 24" fill="currentColor"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-2.08A7 7 0 0 0 19 12h-2Z"/></svg>
+        <svg class="stop" viewBox="0 0 24 24" fill="currentColor"><rect x="7" y="7" width="10" height="10" rx="2.5"/></svg>
+      </button>
+      <span class="hint" id="hint-zh">按一下说话</span>
+    </div>
+  </section>
+
+  <div class="bar">
+    <button class="dial" id="dial" type="button" aria-haspopup="dialog">
+      <span class="txt"><b id="dialZh">自动 · 普通话</b><small id="dialPt">Auto · detectado: Mandarim</small></span>
+      <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+    </button>
+    <button class="ibtn" id="flip" type="button" aria-pressed="false" aria-label="Virar o lado chinês para quem está à frente">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4v14m0 0-3-3m3 3 3-3M17 20V6m0 0-3 3m3-3 3 3"/></svg>
+    </button>
+    <button class="ibtn" id="gear" type="button" aria-label="Ajustes">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>
+    </button>
+  </div>
+
+  <section class="side pt" id="side-pt" aria-label="Português">
+    <div class="head">
+      <div class="lang"><span class="dot"></span>Português</div>
+      <div class="status" id="st-pt"></div>
+    </div>
+    <div class="log" id="log-pt"><p class="empty">Toque no botão verde e fale em português. A outra pessoa ouve em chinês, no dialeto dela.</p></div>
+    <form class="type" id="type-pt" hidden><textarea id="in-pt" rows="1" placeholder="Digite…" enterkeyhint="send"></textarea><button>Enviar</button></form>
+    <div class="ctrl">
+      <button class="kbd" id="kbd-pt" type="button" aria-label="Digitar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><rect x="3" y="6" width="18" height="12" rx="2.5"/><path d="M7 10h.01M10.5 10h.01M14 10h.01M17 10h.01M8 14h8"/></svg></button>
+      <button class="mic" id="mic-pt" type="button" aria-label="Falar">
+        <svg class="go" viewBox="0 0 24 24" fill="currentColor"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-2.08A7 7 0 0 0 19 12h-2Z"/></svg>
+        <svg class="stop" viewBox="0 0 24 24" fill="currentColor"><rect x="7" y="7" width="10" height="10" rx="2.5"/></svg>
+      </button>
+      <span class="hint" id="hint-pt">Toque para falar</span>
+    </div>
+  </section>
+</div>
+
+<div class="scrim" id="scrim"></div>
+<div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+  <div class="grab"></div>
+  <h2 id="sheetTitle">Dialeto da outra pessoa</h2>
+  <div class="list" id="dlist"></div>
+  <p class="note" id="dnote"></p>
+
+  <h2>Conversa</h2>
+  <div class="list">
+    <button class="tog" id="t-voice" type="button">Ler a tradução em voz alta <i></i></button>
+    <button class="tog" id="t-auto" type="button">Passar a vez sozinho <i></i></button>
+  </div>
+  <label class="field" for="ctx">Assunto da conversa (ajuda a traduzir certo)
+    <input id="ctx" placeholder="Ex.: compra de violões, prazo e preço FOB"></label>
+
+  <h2>Vozes</h2>
+  <label class="field" for="v-pt">Português<select id="v-pt"></select></label>
+  <label class="field" for="v-zh">Mandarim<select id="v-zh"></select></label>
+  <label class="field" for="v-yue">Cantonês<select id="v-yue"></select></label>
+  <p class="note" id="vnote"></p>
+  <div class="row"><button class="btn" id="test-voices" type="button">Testar vozes</button></div>
+
+  <h2>Tradução</h2>
+  <label class="field" for="model">Qualidade
+    <select id="model">
+      <option value="claude-opus-5-5">Melhor tradução (Claude Opus 5.5)</option>
+      <option value="claude-sonnet-5-5">Equilibrado (Claude Sonnet 5.5)</option>
+      <option value="claude-haiku-5-5">Mais rápido e barato (Claude Haiku 5.5)</option>
+    </select></label>
+  <label class="field" for="key">Chave da API do Claude (fica só neste celular)
+    <input id="key" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="sk-ant-…"></label>
+  <p class="note">Crie a chave em <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a> › API Keys e cole aqui. Ela é guardada só neste aparelho e enviada só para a Anthropic.</p>
+  <div class="row"><button class="btn primary" id="save-key" type="button">Salvar e testar</button><span class="note" id="key-st"></span></div>
+
+  <div class="row"><button class="btn" id="clear" type="button">Limpar conversa</button></div>
+  <button class="done" id="done" type="button">Pronto</button>
+</div>
+<div class="banner" id="banner" hidden></div>
+
+<script>
+"use strict";
+const $=id=>document.getElementById(id);
+const store={get(k,d){try{const v=localStorage.getItem("itp-"+k);return v===null?d:JSON.parse(v)}catch{return d}},
+             set(k,v){try{localStorage.setItem("itp-"+k,JSON.stringify(v))}catch{}}};
+let bannerT;
+function banner(msg,ms=6000){const b=$("banner");b.textContent=msg;b.hidden=false;clearTimeout(bannerT);if(ms)bannerT=setTimeout(()=>b.hidden=true,ms)}
+$("banner").onclick=()=>$("banner").hidden=true;
+
+/* ---------- Dialetos ---------- */
+const DIALECTS={
+  mandarim:{zh:"普通话",pt:"Mandarim",tts:"zh",asr:"zh-CN"},
+  sichuan:{zh:"四川话",pt:"Sichuan",tts:"zh",asr:"zh-CN"},
+  hunan:{zh:"湖南话",pt:"Hunan",tts:"zh",asr:"zh-CN"},
+  cantones:{zh:"粤语",pt:"Cantonês (Guangdong)",tts:"yue",asr:"zh-HK"}
+};
+let mode=store.get("mode","auto"), detected=store.get("detected","mandarim");
+if(mode!=="auto"&&!DIALECTS[mode]) mode="auto"; if(!DIALECTS[detected]) detected="mandarim";
+const target=()=>mode==="auto"?detected:mode;
+
+const CK='<svg class="ck" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>';
+function renderDialect(){
+  const box=$("dlist"); box.textContent="";
+  const add=(key,zh,pt)=>{const b=document.createElement("button");b.type="button";b.className="drow";b.setAttribute("aria-pressed",mode===key);
+    const t=document.createElement("span");t.className="txt";const z=document.createElement("b");z.textContent=zh;const p=document.createElement("small");p.textContent=pt;t.append(z,p);
+    b.append(t);b.insertAdjacentHTML("beforeend",CK);b.onclick=()=>{mode=key;store.set("mode",key);renderDialect();setTimeout(closeSheet,180)};box.append(b)};
+  add("auto","自动识别","Automático · agora: "+DIALECTS[detected].pt);
+  for(const [k,d] of Object.entries(DIALECTS)) add(k,d.zh,d.pt);
+  const d=DIALECTS[target()];
+  $("zhName").textContent="中文 · "+d.zh;
+  $("dialZh").textContent=(mode==="auto"?"自动 · ":"")+d.zh;
+  $("dialPt").textContent=mode==="auto"?"Auto · detectado: "+d.pt:"Fixo: "+d.pt;
+  let n=mode==="auto"
+    ?"Automático: o dialeto é reconhecido pelo jeito que a pessoa fala, e a resposta sai nele. Se a pessoa falar cantonês, o app percebe e passa a ouvir em cantonês."
+    :"Dialeto fixo. Toque em “Automático” para o app reconhecer sozinho.";
+  if(target()==="sichuan"||target()==="hunan") n+=" Não existe voz sintética de "+d.pt+": a resposta é falada em mandarim, que a pessoa entende.";
+  $("dnote").textContent=n;
+}
+
+/* ---------- Gaveta ---------- */
+function openSheet(focusKey){$("sheet").classList.add("open");$("scrim").classList.add("open");if(focusKey)setTimeout(()=>$("key").focus(),400)}
+function closeSheet(){$("sheet").classList.remove("open");$("scrim").classList.remove("open")}
+$("dial").onclick=()=>openSheet(); $("gear").onclick=()=>openSheet();
+$("scrim").onclick=closeSheet; $("done").onclick=closeSheet;
+document.addEventListener("keydown",e=>{if(e.key==="Escape")closeSheet()});
+
+/* ---------- Ajustes ---------- */
+let voiceOn=store.get("voice",true), autoTurn=store.get("autoturn",true), flip=store.get("flip",false);
+function bindToggle(id,get,set){const b=$(id);const r=()=>b.setAttribute("aria-pressed",get());b.onclick=()=>{set(!get());r()};r()}
+bindToggle("t-voice",()=>voiceOn,v=>{voiceOn=v;store.set("voice",v);if(!v&&HAS_TTS)speechSynthesis.cancel()});
+bindToggle("t-auto",()=>autoTurn,v=>{autoTurn=v;store.set("autoturn",v)});
+bindToggle("flip",()=>flip,v=>{flip=v;store.set("flip",v);document.body.classList.toggle("flip",v)});
+document.body.classList.toggle("flip",flip);
+$("ctx").value=store.get("ctx",""); $("ctx").oninput=()=>store.set("ctx",$("ctx").value);
+$("model").value=store.get("model","claude-opus-5-5"); if(!$("model").value)$("model").value="claude-opus-5-5";
+$("model").onchange=()=>store.set("model",$("model").value);
+$("key").value=store.get("key","");
+$("save-key").onclick=async()=>{
+  const k=$("key").value.trim(); store.set("key",k); const st=$("key-st");
+  if(!k){st.textContent="Cole a chave primeiro.";st.className="note bad";return}
+  st.textContent="Testando…";st.className="note";
+  try{await callClaude('Responda só com JSON: {"ok":true}',64);st.textContent="Chave funcionando.";st.className="note ok"}
+  catch(e){st.textContent=errText(e);st.className="note bad"}
+};
+
+/* ---------- Vozes (prefere masculinas) ---------- */
+const HAS_TTS="speechSynthesis" in window;
+const MALE=/(male|masculin|homem|daniel|felipe|ant[oó]nio|donato|f[aá]bio|humberto|j[uú]lio|nicolau|val[eé]rio|ricardo|eddy|reed|rocko|grandpa|li-?mu|kangkang|yunxi|yunjian|yunyang|yunxia|yunhao|yunfeng|yunze|yunye|wanlung|wan lung|danny|aasing|男)/i;
+const FEMALE=/(female|feminin|mulher|maria|luciana|francisca|thalita|leila|let[ií]cia|manuela|yara|camila|vit[oó]ria|joana|catarina|flo|sandy|shelley|grandma|huihui|yaoyao|xiaoxiao|xiaoyi|tingting|ting-ting|yu-?shu|lili|lilian|sinji|sin-ji|tracy|hiugaai|hiumaan|meijia|女)/i;
+let voices=[];
+const langOf=v=>(v.lang||"").replace("_","-").toLowerCase();
+function voicesFor(kind){
+  let list;
+  if(kind==="pt"){list=voices.filter(v=>langOf(v)==="pt-br");if(!list.length)list=voices.filter(v=>langOf(v).startsWith("pt"))}
+  else if(kind==="zh") list=voices.filter(v=>/^(zh-cn|cmn)/.test(langOf(v))||(langOf(v)==="zh"));
+  else list=voices.filter(v=>/^(zh-hk|yue)/.test(langOf(v))||/cantonese|粵|粤/i.test(v.name));
+  const score=v=>(MALE.test(v.name)?5:0)-(FEMALE.test(v.name)?3:0)+(/enhanced|premium|natural|neural|aprimorad|superior/i.test(v.name+v.voiceURI)?2:0);
+  return list.sort((a,b)=>score(b)-score(a));
+}
+function chosenVoice(kind){const list=voicesFor(kind),name=store.get("voice-"+kind,"");return list.find(v=>v.name===name)||list[0]||null}
+function fillVoices(){
+  for(const kind of ["pt","zh","yue"]){
+    const sel=$("v-"+kind),list=voicesFor(kind),cur=chosenVoice(kind);sel.textContent="";
+    if(!list.length){const o=document.createElement("option");o.textContent=kind==="yue"?"Sem voz de cantonês neste celular":"Nenhuma voz encontrada";sel.append(o);sel.disabled=true;continue}
+    sel.disabled=false;
+    for(const v of list){const o=document.createElement("option");o.value=v.name;o.textContent=v.name+(MALE.test(v.name)?" · masculina":FEMALE.test(v.name)?" · feminina":"");if(cur&&v.name===cur.name)o.selected=true;sel.append(o)}
+    sel.onchange=()=>{store.set("voice-"+kind,sel.value);speak(kind==="pt"?"Olá, esta é a voz em português.":kind==="zh"?"你好，这是普通话的声音。":"你好，呢個係廣東話嘅聲。",kind)};
+  }
+  const male=["pt","zh"].every(k=>{const v=chosenVoice(k);return v&&MALE.test(v.name)});
+  $("vnote").textContent=!HAS_TTS?"Este navegador não lê em voz alta.":male?"Vozes masculinas selecionadas."
+    :"Para ter voz masculina melhor: no iPhone, Ajustes › Acessibilidade › Conteúdo Falado › Vozes › Português (Brasil) e Chinês: baixe uma voz masculina (ex.: Felipe, Li-Mu). Depois feche e abra o app e escolha aqui.";
+}
+if(HAS_TTS){const load=()=>{voices=speechSynthesis.getVoices();fillVoices()};load();speechSynthesis.onvoiceschanged=load;setTimeout(load,700);setTimeout(load,2000)} else fillVoices();
+let ttsUnlocked=false;
+function unlockTTS(){if(!HAS_TTS||ttsUnlocked)return;ttsUnlocked=true;const u=new SpeechSynthesisUtterance(" ");u.volume=0;speechSynthesis.speak(u)}
+function speak(text,kind){
+  return new Promise(res=>{
+    if(!HAS_TTS||!voiceOn||!text)return res();
+    const u=new SpeechSynthesisUtterance(text),v=chosenVoice(kind);
+    u.lang=v?v.lang:(kind==="pt"?"pt-BR":kind==="yue"?"zh-HK":"zh-CN");if(v)u.voice=v;u.rate=kind==="pt"?1.02:.95;
+    let done=false;const fin=()=>{if(!done){done=true;res()}};u.onend=fin;u.onerror=fin;setTimeout(fin,2500+text.length*280);
+    speechSynthesis.cancel();setTimeout(()=>speechSynthesis.speak(u),120);
+  });
+}
+$("test-voices").onclick=async()=>{unlockTTS();await speak("Olá, eu sou o seu intérprete.","pt");await speak("你好，我是您的翻译。","zh");await speak("你好，我係你嘅翻譯。","yue")};
+
+/* ---------- Claude ---------- */
+const API="https://api.anthropic.com/v1/messages";
+let extrasOK=store.get("extrasOK",true);
+async function callClaude(prompt,maxTokens=1024){
+  const key=store.get("key","").trim();
+  if(!key){const e=new Error("sem chave");e.code="nokey";throw e}
+  const model=$("model").value||"claude-opus-5-5";
+  const send=async(extras)=>{
+    const body={model,max_tokens:maxTokens,messages:[{role:"user",content:prompt}]};
+    const headers={"content-type":"application/json","x-api-key":key,"anthropic-dangerous-direct-browser-access":"true",
+      "anthropic-version":extras?"2026-10-21":"2023-06-01"};
+    if(extras){body.output_config={effort:"low"};if(model==="claude-opus-5-5"){body.fallbacks="default";headers["anthropic-beta"]="server-side-fallback-2026-07-01"}}
+    const r=await fetch(API,{method:"POST",headers,body:JSON.stringify(body)});
+    const j=await r.json().catch(()=>null);
+    if(!r.ok){const e=new Error(j?.error?.message||("HTTP "+r.status));e.status=r.status;throw e}
+    return j;
+  };
+  let j;
+  try{j=await send(extrasOK)}
+  catch(e){ if(e.status===400&&extrasOK){extrasOK=false;store.set("extrasOK",false);j=await send(false)} else throw e }
+  if(j.stop_reason==="refusal"){const e=new Error("recusado");e.code="refusal";throw e}
+  const text=(j.content||[]).filter(b=>b.type==="text").map(b=>b.text).join("");
+  return parseJSON(text);
+}
+function parseJSON(t){
+  try{return JSON.parse(t)}catch{}
+  const m=t.match(/```(?:json)?\s*([\s\S]*?)```/);if(m){try{return JSON.parse(m[1])}catch{}}
+  const a=t.indexOf("{"),b=t.lastIndexOf("}");if(a>=0&&b>a){try{return JSON.parse(t.slice(a,b+1))}catch{}}
+  const e=new Error("resposta inválida");e.code="badjson";throw e;
+}
+function errText(e){
+  if(e.code==="nokey")return"Falta a chave da API. Abra os ajustes (ícone de controles no meio da tela).";
+  if(e.status===401)return"Chave inválida. Confira e cole de novo nos ajustes.";
+  if(e.status===403)return"Esta chave não tem permissão. Crie outra no console da Anthropic.";
+  if(e.status===429)return"Muitas traduções seguidas ou limite da conta. Espere alguns segundos.";
+  if(e.status===402||/credit|billing/i.test(e.message||""))return"Sem créditos na conta da API. Adicione créditos no console da Anthropic.";
+  if(e.status>=500)return"O Claude está instável agora. Tente de novo.";
+  if(e.code==="refusal")return"O Claude não traduziu esta frase. Tente dizer de outro jeito.";
+  if(e instanceof TypeError)return"Sem internet. O app precisa de conexão para traduzir.";
+  return"Não consegui traduzir. Tente de novo.";
+}
+
+let history=[];
+function ctxLine(){const c=$("ctx").value.trim();return c?`Assunto da conversa: ${c}\n`:""}
+function histLines(){return history.length?"Falas anteriores (para manter o fio):\n"+history.slice(-6).map(h=>`- ${h.who}: ${h.pt}`).join("\n")+"\n":""}
+const BASE="Você é um intérprete humano experiente numa conversa de negócios ao vivo entre um brasileiro e uma pessoa chinesa. O texto veio do reconhecimento de voz do celular: pode ter erros de reconhecimento, palavras trocadas por som parecido e falta de pontuação; corrija pelo sentido e pelo contexto.\n";
+function promptZhToPt(text,asr){
+  return BASE+ctxLine()+histLines()+`
+A pessoa chinesa disse (reconhecido como ${asr==="zh-HK"?"cantonês":"mandarim"}):
+«${text}»
+
+1. Identifique a variedade falada pelo vocabulário:
+ - "cantones": palavras do cantonês (嘅 咗 唔 係 啲 冇 嚟 喺 佢 哋 乜嘢 點解 咩 嘢 畀 睇 傾 啱 靚 嗰 呢度 幾多錢 唔該).
+ - "sichuan": 啥子 咋个 巴适 要得 莫得 安逸 晓得 噻 锤子 耍 摆龙门阵 搞快点 撒 哈.
+ - "hunan": 么子 冇得 何解 咯 啰 恰饭 霸蛮 堂客 策 港(=说) 果(=这).
+ - "mandarim": nada disso. Se não der para saber, "indefinido".
+2. "cantones_mal_reconhecido": true se o texto, reconhecido como mandarim, parece ser cantonês transcrito errado (sílabas sem sentido, palavras soltas que não formam frase em mandarim); senão false.
+3. Traduza para o português do Brasil como um bom intérprete: o sentido, o tom e a educação, em frases que um brasileiro diria naturalmente. Nada de palavra por palavra. Expressões regionais viram o equivalente natural em português. Números, preços, moedas, quantidades, datas e nomes exatos.
+Responda só com JSON: {"dialeto":"mandarim|sichuan|hunan|cantones|indefinido","cantones_mal_reconhecido":false,"original":"texto chinês corrigido","romanizacao":"pinyin (jyutping se cantonês)","traducao":"tradução em português"}`;
+}
+function promptPtToZh(text,dial){
+  const alvo=dial==="cantones"
+    ?"cantonês oral de Guangdong (粤语口语), escrito com os caracteres próprios do cantonês (嘅、咗、唔、係、佢、啲…) em chinês simplificado, do jeito que um cantonês fala no dia a dia. Romanização em jyutping."
+    :`mandarim falado (普通话口语), em chinês simplificado, natural e cordial, como um chinês fala numa reunião de negócios. A pessoa é de ${dial==="sichuan"?"Sichuan":dial==="hunan"?"Hunan":"qualquer região"}: use um mandarim claro e fácil de entender. Romanização em pinyin com tons.`;
+  return BASE+ctxLine()+histLines()+`
+O brasileiro disse:
+«${text}»
+
+Traduza para ${alvo}
+Traduza como um bom intérprete: o sentido, o tom e a educação, com as frases que um chinês usaria de verdade. Nada de palavra por palavra. Use a forma chinesa natural para cumprimentos, pedidos e negociação (termos como 报价、交期、起订量、含税、FOB quando couber). Números, preços, moedas, quantidades, datas e nomes exatos.
+Responda só com JSON: {"traducao":"texto em chinês","romanizacao":"romanização","volta":"tradução de volta para o português, curta, para o brasileiro conferir"}`;
+}
+
+/* ---------- Conversa ---------- */
+const logs={pt:$("log-pt"),zh:$("log-zh")};
+const other=s=>s==="pt"?"zh":"pt";
+function el(tag,cls,text){const e=document.createElement(tag);if(cls)e.className=cls;if(text!=null)e.textContent=text;return e}
+function clearEmpty(){document.querySelectorAll(".empty").forEach(e=>e.remove())}
+function scrollAll(){for(const l of Object.values(logs))l.scrollTop=l.scrollHeight}
+let busy=null,turn="pt",live=null;
+function setStatus(){
+  for(const s of ["pt","zh"]){
+    const side=$("side-"+s);
+    side.classList.toggle("busy",busy===s);side.classList.toggle("live",live===s);side.classList.toggle("turn",turn===s&&!busy&&!live);
+    $("st-"+s).textContent=live===s?(s==="pt"?"Ouvindo…":"正在听…"):busy===s?(s==="pt"?"Traduzindo…":"正在翻译…")
+      :busy||live?(s==="pt"?"Aguarde…":"请稍等…"):turn===s?(s==="pt"?"Sua vez":"轮到您了"):"";
+    $("hint-"+s).textContent=live===s?(s==="pt"?"Toque para parar":"再按一下结束"):(s==="pt"?"Toque para falar":"按一下说话");
+  }
+}
+
+let queue=Promise.resolve();
+function enqueue(side,text,asr){text=(text||"").trim();if(!text)return;queue=queue.then(()=>translateTurn(side,text,asr)).catch(()=>{})}
+
+async function translateTurn(side,text,asr){
+  clearEmpty();
+  const fromPt=side==="pt";
+  const own=el("div","msg out"),ownBig=el("div","big",text),ownSub=el("div","sub "+(fromPt?"zhf":"ptf"));own.append(ownBig,ownSub);
+  const inc=el("div","msg in pending"),incBig=el("div","big",fromPt?"翻译中…":"Traduzindo…"),incSub=el("div","sub");inc.append(incBig,incSub);
+  logs[side].append(own);logs[other(side)].append(inc);scrollAll();
+  busy=side;setStatus();
+  const dial=target();
+  let r;
+  try{r=await callClaude(fromPt?promptPtToZh(text,dial):promptZhToPt(text,asr||DIALECTS[dial].asr))}
+  catch(e){
+    busy=null;setStatus();inc.classList.remove("pending");
+    incBig.textContent=fromPt?"翻译失败":"Falha na tradução";incSub.textContent=errText(e);incSub.className="sub ptf";
+    if(e.code==="nokey")openSheet(true);
+    return;
+  }
+  const tr=String(r?.traducao||"").trim();
+  inc.classList.remove("pending");
+  if(!tr){incBig.textContent=fromPt?"翻译失败":"Falha na tradução";busy=null;setStatus();return}
+  let kind;
+  if(fromPt){
+    incBig.textContent=tr;incSub.textContent=r.romanizacao||"";incSub.className="sub ptf";
+    ownSub.textContent=r.volta?"→ “"+r.volta+"”":"";ownSub.className="sub ptf";
+    kind=DIALECTS[dial].tts;history.push({who:"Brasileiro",pt:text});
+  }else{
+    const d=String(r.dialeto||"");
+    if(r.cantones_mal_reconhecido===true&&asr!=="zh-HK"&&mode==="auto"){
+      detected="cantones";store.set("detected",detected);renderDialect();
+      banner("Parece cantonês. Agora o app ouve em cantonês: peça para repetir. 好像是粤语，请再说一次。",8000);
+    }else if(DIALECTS[d]){detected=d;store.set("detected",d);renderDialect()}
+    if(DIALECTS[d]&&d!=="mandarim")own.prepend(el("div","tag",DIALECTS[d].zh+" · "+DIALECTS[d].pt));
+    if(r.original)ownBig.textContent=r.original;
+    ownSub.textContent=r.romanizacao||"";ownSub.className="sub ptf";
+    incBig.textContent=tr;incSub.textContent=r.original||text;incSub.className="sub zhf";
+    kind="pt";history.push({who:"Chinês",pt:tr});
+  }
+  const again=el("button","again "+(fromPt?"zhf":"ptf"),fromPt?"🔊 再听一次":"🔊 Ouvir de novo");again.type="button";
+  again.onclick=()=>{unlockTTS();speak(tr,kind)};inc.append(again);
+  scrollAll();
+  busy=null;if(autoTurn)turn=other(side);setStatus();
+  await speak(tr,kind);
+}
+
+/* ---------- Microfone ---------- */
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+let rec=null;
+function micTap(side){
+  unlockTTS();
+  if(rec){try{rec.stop()}catch{}return}
+  if(!SR){banner("Este navegador não tem reconhecimento de voz. Abra no Safari (iPhone) ou no Chrome (Android).");showType(side,true);return}
+  if(HAS_TTS)speechSynthesis.cancel();
+  const r=new SR();rec=r;
+  const asr=side==="pt"?"pt-BR":DIALECTS[target()].asr;
+  r.lang=asr;r.interimResults=true;r.continuous=false;r.maxAlternatives=1;
+  let text="",ghost=null;
+  r.onresult=e=>{
+    let t="";for(let i=0;i<e.results.length;i++)t+=e.results[i][0].transcript;text=t;
+    clearEmpty();
+    if(!ghost){ghost=el("div","msg out ghost");ghost.append(el("div","big"));logs[side].append(ghost)}
+    ghost.firstChild.textContent=t;scrollAll();
+  };
+  r.onerror=e=>{
+    if(e.error==="not-allowed"||e.error==="service-not-allowed")banner("O microfone está bloqueado. iPhone: Ajustes › Safari › Microfone › Permitir (e Ajustes › Privacidade › Reconhecimento de Fala).",9000);
+    else if(e.error==="language-not-supported")banner("O reconhecimento de voz deste celular não aceita "+(side==="pt"?"português":DIALECTS[target()].pt)+". Ative o idioma em Ajustes › Geral › Teclado › Ditado.",9000);
+    else if(e.error==="network")banner("Sem internet: o reconhecimento de voz precisa de conexão.");
+    else if(e.error==="no-speech")banner(side==="pt"?"Não ouvi nada. Toque e fale de novo.":"没有听到声音，请再按一次说话。",3500);
+  };
+  r.onend=()=>{rec=null;live=null;if(ghost)ghost.remove();setStatus();if(text.trim())enqueue(side,text,asr)};
+  try{r.start();live=side;turn=side;setStatus()}catch{rec=null;banner("Não consegui ligar o microfone. Tente de novo.")}
+}
+
+/* ---------- Digitação (alternativa) ---------- */
+function showType(side,show){const f=$("type-"+side);f.hidden=show===undefined?!f.hidden:!show;if(!f.hidden)$("in-"+side).focus()}
+for(const side of ["pt","zh"]){
+  $("mic-"+side).onclick=()=>micTap(side);
+  $("kbd-"+side).onclick=()=>showType(side);
+  const ta=$("in-"+side);
+  ta.addEventListener("input",()=>{ta.style.height="auto";ta.style.height=Math.min(ta.scrollHeight,110)+"px"});
+  ta.addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();$("type-"+side).requestSubmit()}});
+  $("type-"+side).onsubmit=e=>{e.preventDefault();unlockTTS();const v=ta.value;ta.value="";ta.style.height="auto";enqueue(side,v)};
+}
+$("clear").onclick=()=>{for(const l of Object.values(logs))l.textContent="";history=[];closeSheet()};
+
+renderDialect();setStatus();
+if(!store.get("key","")){setTimeout(()=>{openSheet();banner("Primeiro passo: cole a chave da API do Claude nos ajustes.",7000)},500)}
+</script>
+</body>
+</html>
